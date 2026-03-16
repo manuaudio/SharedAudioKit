@@ -174,6 +174,29 @@ public final class LockFreeRingBuffer {
     /// Whether the buffer is full.
     public var isFull: Bool { availableWrite() == 0 }
 
+    // MARK: - Array Convenience
+
+    /// Write audio samples from a Swift Array.
+    /// - Returns: Number of frames actually written.
+    @discardableResult
+    public func write(_ data: [Float]) -> Int {
+        data.withUnsafeBufferPointer { buf in
+            guard let base = buf.baseAddress else { return 0 }
+            return write(base, frameCount: data.count)
+        }
+    }
+
+    /// Read audio samples into a new Swift Array.
+    /// - Returns: Array of samples read (may be shorter than requested if buffer has less data).
+    public func read(frameCount: Int) -> [Float] {
+        var output = [Float](repeating: 0, count: frameCount)
+        let actual = output.withUnsafeMutableBufferPointer { buf in
+            read(buf.baseAddress!, frameCount: frameCount)
+        }
+        if actual < frameCount { output.removeSubrange(actual..<frameCount) }
+        return output
+    }
+
     // MARK: - Statistics
 
     /// Buffer statistics snapshot for monitoring/debugging.

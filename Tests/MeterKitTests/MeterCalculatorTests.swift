@@ -58,3 +58,32 @@ struct MeterCalculatorTests {
         #expect(result.clipped == false)
     }
 }
+
+@Suite("MeterStore")
+struct MeterStoreTests {
+
+    @Test("Reset meters restores silence")
+    func resetMeters() {
+        let store = MeterStore()
+        store.writeMeters(rmsValues: [-10.0, -12.0], peakValues: [-5.0, -6.0])
+
+        let (rms, peak) = store.getMeterData(channel: 0)
+        #expect(rms == -10.0)
+        #expect(peak == -5.0)
+
+        store.resetMeters()
+
+        let (rmsAfter, peakAfter) = store.getMeterData(channel: 0)
+        #expect(rmsAfter == -60.0)
+        #expect(peakAfter == -60.0)
+    }
+
+    @Test("Channel count reflects written data")
+    func channelCount() {
+        let store = MeterStore()
+        #expect(store.channelCount == 0)
+
+        store.writeMeters(rmsValues: [-20.0, -30.0], peakValues: [-10.0, -15.0])
+        #expect(store.channelCount == 2)
+    }
+}

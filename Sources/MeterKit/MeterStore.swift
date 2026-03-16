@@ -68,6 +68,13 @@ public final class MeterStore {
         return meterData.count / 2
     }
 
+    /// Reset all meter data to silence.
+    public func resetMeters() {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        for i in meterData.indices { meterData[i] = -60.0 }
+    }
+
     // MARK: - Refresh Timer
 
     private func startRefreshTimer() {

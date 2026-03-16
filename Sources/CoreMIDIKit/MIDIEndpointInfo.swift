@@ -85,3 +85,14 @@ public func findDestinationByUniqueID(_ uid: Int32) -> MIDIEndpointRef? {
     }
     return nil
 }
+
+/// Find a MIDI source by unique ID.
+public func findSourceByUniqueID(_ uid: Int32) -> MIDIEndpointRef? {
+    var obj: MIDIObjectRef = 0
+    var objType: MIDIObjectType = .other
+    let status = MIDIObjectFindByUniqueID(MIDIUniqueID(uid), &obj, &objType)
+    if status == noErr && obj != 0 && objType == .source {
+        return obj
+    }
+    return nil
+}

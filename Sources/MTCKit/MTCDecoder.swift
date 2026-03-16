@@ -47,9 +47,18 @@ public final class MTCDecoder {
     private var expectingQuarterFrameData = false
     private var suppressNextQFDecode = false
 
-    // SysEx accumulation
+    // SysEx accumulation (capped at 256 bytes to prevent OOM on malformed streams)
     private var sysExBuffer: [UInt8] = []
     private var inSysEx = false
+    private static let maxSysExLength = 256
+
+    /// Timestamp of the last successfully decoded timecode.
+    public private(set) var lastDecodeTime: CFAbsoluteTime = 0
+
+    /// Whether the decoder has active MTC input (received valid timecode within the last 1 second).
+    public var isActive: Bool {
+        CFAbsoluteTimeGetCurrent() - lastDecodeTime < 1.0
+    }
 
     // MARK: - Rate Lookup
 
@@ -75,6 +84,7 @@ public final class MTCDecoder {
         inSysEx = false
         timecode = .zero
         frameRate = .fps30
+        lastDecodeTime = 0
     }
 
     // MARK: - Byte Processing
@@ -99,6 +109,10 @@ public final class MTCDecoder {
                 // Fall through to handle this status byte
             } else {
                 sysExBuffer.append(byte)
+                if sysExBuffer.count > Self.maxSysExLength {
+                    inSysEx = false
+                    sysExBuffer.removeAll()
+                }
                 return
             }
         }
@@ -163,6 +177,7 @@ public final class MTCDecoder {
         quarterFrameReceivedMask = 0
         suppressNextQFDecode = true
 
+        lastDecodeTime = CFAbsoluteTimeGetCurrent()
         onFullFrame?(tc, rate)
     }
 
@@ -191,6 +206,7 @@ public final class MTCDecoder {
 
         timecode = corrected
         frameRate = rate
+        lastDecodeTime = CFAbsoluteTimeGetCurrent()
         onTimecode?(corrected, rate)
     }
 }

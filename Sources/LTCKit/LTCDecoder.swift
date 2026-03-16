@@ -45,6 +45,10 @@ public final class LTCDecoder {
     private var expectingFirstHalf: Bool = true
     private var absoluteSamplePos: UInt64 = 0
     private var estimatedBitDuration: Double = 0
+    private var consecutiveGoodFrames: Int = 0
+
+    /// Timestamp of the last successfully decoded frame.
+    public private(set) var lastDecodeTime: CFAbsoluteTime = 0
 
     // MARK: - Init
 
@@ -52,6 +56,19 @@ public final class LTCDecoder {
         self.sampleRate = sampleRate
         self.estimatedBitDuration = sampleRate / 2400.0
         reset()
+    }
+
+    /// Signal quality (0.0 = no signal, 1.0 = clean lock).
+    /// Based on consecutive successful frame decodes. Drops to 0 if no frame decoded within 0.5s.
+    public var signalQuality: Float {
+        let elapsed = CFAbsoluteTimeGetCurrent() - lastDecodeTime
+        if elapsed > 0.5 { return 0.0 }
+        return min(1.0, Float(consecutiveGoodFrames) / 10.0)
+    }
+
+    /// Whether the decoder has active LTC signal (decoded a frame within the last 0.5 seconds).
+    public var isActive: Bool {
+        CFAbsoluteTimeGetCurrent() - lastDecodeTime < 0.5
     }
 
     /// Reset decoder state (call when seeking or switching files).
@@ -66,6 +83,8 @@ public final class LTCDecoder {
         prevHalfDuration = 0
         expectingFirstHalf = true
         absoluteSamplePos = 0
+        consecutiveGoodFrames = 0
+        lastDecodeTime = 0
     }
 
     // MARK: - Decode
@@ -168,6 +187,8 @@ public final class LTCDecoder {
         let frame = parseFrame(bits: frameData, startSample: startSample)
         frameBitsHead = 0
         frameBitsCount = 0
+        consecutiveGoodFrames += 1
+        lastDecodeTime = CFAbsoluteTimeGetCurrent()
         return frame
     }
 

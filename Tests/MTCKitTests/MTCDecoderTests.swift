@@ -90,5 +90,58 @@ struct MTCDecoderTests {
         decoder.reset()
         #expect(decoder.timecode == .zero)
         #expect(decoder.frameRate == .fps30)
+        #expect(decoder.lastDecodeTime == 0)
+    }
+
+    // MARK: - SysEx buffer cap
+
+    @Test("SysEx buffer capped at 256 bytes")
+    func sysExBufferCap() {
+        let decoder = MTCDecoder()
+        var fullFrameReceived = false
+        decoder.onFullFrame = { _, _ in fullFrameReceived = true }
+
+        // Start SysEx
+        decoder.processByte(0xF0)
+        // Feed 300 junk bytes (exceeds 256 cap)
+        for _ in 0..<300 {
+            decoder.processByte(0x42)
+        }
+        // End SysEx — should have been discarded due to cap
+        decoder.processByte(0xF7)
+
+        #expect(!fullFrameReceived, "Oversized SysEx should be discarded")
+    }
+
+    @Test("Valid SysEx still works after capped one")
+    func sysExWorksAfterCap() {
+        let decoder = MTCDecoder()
+        var received = false
+        decoder.onFullFrame = { _, _ in received = true }
+
+        // Oversized SysEx (discarded)
+        decoder.processByte(0xF0)
+        for _ in 0..<300 { decoder.processByte(0x42) }
+        decoder.processByte(0xF7)
+
+        // Valid full-frame SysEx
+        let sysEx: [UInt8] = [0xF0, 0x7F, 0x7F, 0x01, 0x01, 0x61, 0x17, 0x2D, 0x0A, 0xF7]
+        for byte in sysEx { decoder.processByte(byte) }
+
+        #expect(received, "Valid SysEx after discarded one should still work")
+    }
+
+    // MARK: - Liveness tracking
+
+    @Test("isActive reflects recent decode")
+    func livenessTracking() {
+        let decoder = MTCDecoder()
+        #expect(!decoder.isActive, "Should be inactive before any decode")
+
+        let sysEx: [UInt8] = [0xF0, 0x7F, 0x7F, 0x01, 0x01, 0x61, 0x17, 0x2D, 0x0A, 0xF7]
+        for byte in sysEx { decoder.processByte(byte) }
+
+        #expect(decoder.isActive, "Should be active right after decode")
+        #expect(decoder.lastDecodeTime > 0)
     }
 }

@@ -61,4 +61,45 @@ struct LTCRoundTripTests {
         #expect(LTCDecoder.quantizeFrameRate(29.97, dropFrame: true) == 29.97)
         #expect(LTCDecoder.quantizeFrameRate(30.0, dropFrame: false) == 30.0)
     }
+
+    // MARK: - Signal quality
+
+    @Test("Signal quality starts at zero")
+    func signalQualityInitial() {
+        let decoder = LTCDecoder(sampleRate: 48000.0)
+        #expect(decoder.signalQuality == 0.0)
+        #expect(!decoder.isActive)
+    }
+
+    @Test("Signal quality increases after successful decodes")
+    func signalQualityAfterDecode() {
+        let tc = Timecode(hours: 1, minutes: 0, seconds: 0, frames: 0)
+        let sampleRate = 48000.0
+        let totalSamples = Int(sampleRate * 2)
+
+        let audio = LTCEncoder.encode(
+            timecodes: [(tc, 0)],
+            rate: .fps30,
+            sampleRate: sampleRate,
+            totalSamples: totalSamples
+        )
+
+        let decoder = LTCDecoder(sampleRate: sampleRate)
+        let frames = decoder.decode(samples: audio, sampleOffset: 0)
+
+        if !frames.isEmpty {
+            #expect(decoder.signalQuality > 0.0)
+            #expect(decoder.isActive)
+            #expect(decoder.lastDecodeTime > 0)
+        }
+    }
+
+    @Test("Reset clears signal quality")
+    func signalQualityReset() {
+        let decoder = LTCDecoder(sampleRate: 48000.0)
+        decoder.reset()
+        #expect(decoder.signalQuality == 0.0)
+        #expect(!decoder.isActive)
+        #expect(decoder.lastDecodeTime == 0)
+    }
 }

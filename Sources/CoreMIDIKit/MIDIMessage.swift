@@ -17,6 +17,19 @@ public enum MIDIMessage: Sendable {
     case sysEx(data: [UInt8])
     case other(status: UInt8, data1: UInt8, data2: UInt8)
 
+    /// The raw MIDI bytes for this message. Useful for feeding to MTCDecoder.
+    public var bytes: [UInt8] {
+        switch self {
+        case .noteOn(let ch, let n, let v): return [0x90 | ch, n, v]
+        case .noteOff(let ch, let n, let v): return [0x80 | ch, n, v]
+        case .controlChange(let ch, let cc, let v): return [0xB0 | ch, cc, v]
+        case .programChange(let ch, let p): return [0xC0 | ch, p]
+        case .quarterFrame(let d): return [0xF1, d]
+        case .sysEx(let data): return [0xF0] + data + [0xF7]
+        case .other(let s, let d1, let d2): return [s, d1, d2]
+        }
+    }
+
     /// Parse a 3-byte MIDI channel voice message.
     public static func parse(status: UInt8, data1: UInt8, data2: UInt8) -> MIDIMessage {
         let channel = status & 0x0F

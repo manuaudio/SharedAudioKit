@@ -11,7 +11,7 @@ import Foundation
 import TimecodeKit
 
 /// Pre-computed cue range for fast lookup.
-public struct CueRange: Sendable {
+public struct CueRange: Sendable, Codable {
     public let startFrames: Int
     public let endFrames: Int
     public let cueID: UUID
@@ -184,6 +184,14 @@ public final class CueTriggerEngine {
     /// The current loaded ranges (read-only).
     public var ranges: [CueRange] {
         queue.sync { cueRanges }
+    }
+
+    /// The cue range the timecode is currently inside, if any.
+    public var currentCue: CueRange? {
+        queue.sync {
+            guard let id = lastTriggeredCueID else { return nil }
+            return cueRanges.first(where: { $0.cueID == id })
+        }
     }
 
     /// Number of the next cue after the given range index, or nil.

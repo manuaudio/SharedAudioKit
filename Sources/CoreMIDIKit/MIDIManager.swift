@@ -132,6 +132,48 @@ public final class MIDIManager {
         }
     }
 
+    // MARK: - Send Helpers
+
+    /// Send a Control Change message.
+    public func sendCC(channel: UInt8, controller: UInt8, value: UInt8, to dest: MIDIEndpointRef) throws {
+        try send([0xB0 | (channel & 0x0F), controller & 0x7F, value & 0x7F], to: dest)
+    }
+
+    /// Send a Program Change message.
+    public func sendProgramChange(channel: UInt8, program: UInt8, to dest: MIDIEndpointRef) throws {
+        try send([0xC0 | (channel & 0x0F), program & 0x7F], to: dest)
+    }
+
+    /// Send a Note On message.
+    public func sendNoteOn(channel: UInt8, note: UInt8, velocity: UInt8, to dest: MIDIEndpointRef) throws {
+        try send([0x90 | (channel & 0x0F), note & 0x7F, velocity & 0x7F], to: dest)
+    }
+
+    /// Send a Note Off message.
+    public func sendNoteOff(channel: UInt8, note: UInt8, velocity: UInt8, to dest: MIDIEndpointRef) throws {
+        try send([0x80 | (channel & 0x0F), note & 0x7F, velocity & 0x7F], to: dest)
+    }
+
+    // MARK: - Connect by Unique ID
+
+    /// Connect input port to a MIDI source identified by unique ID.
+    /// Returns true if the source was found and connected.
+    @discardableResult
+    public func connect(toSourceWithUniqueID uid: Int32) -> Bool {
+        guard let endpoint = findSourceByUniqueID(uid) else { return false }
+        MIDIPortConnectSource(inputPort, endpoint, nil)
+        return true
+    }
+
+    /// Disconnect input port from a MIDI source identified by unique ID.
+    /// Returns true if the source was found and disconnected.
+    @discardableResult
+    public func disconnect(fromSourceWithUniqueID uid: Int32) -> Bool {
+        guard let endpoint = findSourceByUniqueID(uid) else { return false }
+        MIDIPortDisconnectSource(inputPort, endpoint)
+        return true
+    }
+
     // MARK: - Endpoint Enumeration
 
     /// Refresh the lists of available sources and destinations.

@@ -74,4 +74,43 @@ struct LockFreeRingBufferTests {
         buffer.reset()
         #expect(buffer.isEmpty)
     }
+
+    // MARK: - Array convenience API
+
+    @Test("Array write and read round-trip")
+    func arrayRoundTrip() {
+        let buffer = LockFreeRingBuffer(capacity: 1024)
+        let input: [Float] = [1.0, 2.0, 3.0, 4.0, 5.0]
+        let written = buffer.write(input)
+        #expect(written == 5)
+
+        let output = buffer.read(frameCount: 5)
+        #expect(output == input)
+    }
+
+    @Test("Array read returns shorter array when less data available")
+    func arrayReadPartial() {
+        let buffer = LockFreeRingBuffer(capacity: 64)
+        buffer.write([10.0, 20.0, 30.0])
+
+        let output = buffer.read(frameCount: 10)
+        #expect(output.count == 3)
+        #expect(output == [10.0, 20.0, 30.0])
+    }
+
+    @Test("Array read on empty buffer returns empty array")
+    func arrayReadEmpty() {
+        let buffer = LockFreeRingBuffer(capacity: 64)
+        let output = buffer.read(frameCount: 5)
+        #expect(output.isEmpty)
+    }
+
+    @Test("Array write respects capacity")
+    func arrayWriteCapacity() {
+        let buffer = LockFreeRingBuffer(capacity: 8)
+        let data = [Float](repeating: 1.0, count: 20)
+        let written = buffer.write(data)
+        #expect(written < 20, "Should not write more than capacity allows")
+        #expect(written == 7) // capacity - 1 for gap
+    }
 }
