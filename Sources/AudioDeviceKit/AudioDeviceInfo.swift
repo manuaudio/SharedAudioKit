@@ -3,8 +3,10 @@
 //  AudioDeviceKit
 //
 //  CoreAudio device information.
+//  macOS-only: Uses CoreAudio HAL types.
 //
 
+#if os(macOS)
 import Foundation
 import CoreAudio
 
@@ -31,3 +33,4 @@ public struct AudioDeviceInfo: Identifiable, Equatable, Sendable {
         lhs.uid == rhs.uid
     }
 }
+#endif

@@ -9,15 +9,32 @@
 import Foundation
 import CoreMIDI
 
+/// Errors that can occur during MIDI setup.
+public enum MIDIManagerError: LocalizedError {
+    case clientCreationFailed(OSStatus)
+    case inputPortCreationFailed(OSStatus)
+    case outputPortCreationFailed(OSStatus)
+    case sendFailed(OSStatus)
+
+    public var errorDescription: String? {
+        switch self {
+        case .clientCreationFailed(let s): return "Failed to create MIDI client (error \(s))"
+        case .inputPortCreationFailed(let s): return "Failed to create input port (error \(s))"
+        case .outputPortCreationFailed(let s): return "Failed to create output port (error \(s))"
+        case .sendFailed(let s): return "MIDI send failed (error \(s))"
+        }
+    }
+}
+
 /// Manages a single CoreMIDI client with input and output ports.
 ///
 /// Usage:
 /// ```swift
-/// let midi = MIDIManager(clientName: "MyApp")
-/// midi.createInputPort(name: "Input") { message in ... }
-/// midi.createOutputPort(name: "Output")
+/// guard let midi = MIDIManager(clientName: "MyApp") else { /* MIDI unavailable */ }
+/// try midi.createInputPort(name: "Input") { message in ... }
+/// try midi.createOutputPort(name: "Output")
 /// midi.connectAllSources()
-/// midi.send([0xC0, 42], to: destinationEndpoint)
+/// try midi.send([0xC0, 42], to: destinationEndpoint)
 /// ```
 public final class MIDIManager {
 
@@ -35,7 +52,8 @@ public final class MIDIManager {
 
     private var inputCallback: ((MIDIMessage) -> Void)?
 
-    public init(clientName: String) {
+    /// Create a MIDI manager. Returns nil if the CoreMIDI client cannot be created.
+    public init?(clientName: String) {
         let status = MIDIClientCreateWithBlock(clientName as CFString, &client) { [weak self] notification in
             if notification.pointee.messageID == .msgSetupChanged {
                 DispatchQueue.main.async {
@@ -44,9 +62,7 @@ public final class MIDIManager {
                 }
             }
         }
-        if status != noErr {
-            print("[CoreMIDIKit] Failed to create client: \(status)")
-        }
+        guard status == noErr else { return nil }
         refreshEndpoints()
     }
 
@@ -59,23 +75,23 @@ public final class MIDIManager {
     // MARK: - Port Creation
 
     /// Create an input port that parses MIDI events and delivers MIDIMessage values.
-    public func createInputPort(name: String, callback: @escaping (MIDIMessage) -> Void) {
+    public func createInputPort(name: String, callback: @escaping (MIDIMessage) -> Void) throws {
         self.inputCallback = callback
         let status = MIDIInputPortCreateWithProtocol(
             client, name as CFString, ._1_0, &inputPort
         ) { [weak self] eventList, _ in
             self?.handleEventList(eventList)
         }
-        if status != noErr {
-            print("[CoreMIDIKit] Failed to create input port: \(status)")
+        guard status == noErr else {
+            throw MIDIManagerError.inputPortCreationFailed(status)
         }
     }
 
     /// Create an output port for sending MIDI data.
-    public func createOutputPort(name: String) {
+    public func createOutputPort(name: String) throws {
         let status = MIDIOutputPortCreate(client, name as CFString, &outputPort)
-        if status != noErr {
-            print("[CoreMIDIKit] Failed to create output port: \(status)")
+        guard status == noErr else {
+            throw MIDIManagerError.outputPortCreationFailed(status)
         }
     }
 
@@ -102,7 +118,7 @@ public final class MIDIManager {
     // MARK: - Sending
 
     /// Send raw MIDI bytes to a destination.
-    public func send(_ bytes: [UInt8], to destination: MIDIEndpointRef) {
+    public func send(_ bytes: [UInt8], to destination: MIDIEndpointRef) throws {
         guard outputPort != 0 else { return }
         var packetList = MIDIPacketList()
         let packet = MIDIPacketListInit(&packetList)
@@ -110,7 +126,10 @@ public final class MIDIManager {
             guard let baseAddress = buffer.baseAddress else { return }
             MIDIPacketListAdd(&packetList, 1024, packet, 0, bytes.count, baseAddress)
         }
-        MIDISend(outputPort, destination, &packetList)
+        let status = MIDISend(outputPort, destination, &packetList)
+        guard status == noErr else {
+            throw MIDIManagerError.sendFailed(status)
+        }
     }
 
     // MARK: - Endpoint Enumeration
@@ -137,6 +156,50 @@ public final class MIDIManager {
                     let data1 = UInt8((word >> 8) & 0xFF)
                     let data2 = UInt8(word & 0xFF)
                     let message = MIDIMessage.parse(status: status, data1: data1, data2: data2)
+
+                    DispatchQueue.main.async { [weak self] in
+                        self?.inputCallback?(message)
+                    }
+                } else if messageType == 0x01 { // MIDI 1.0 system common
+                    let status = UInt8((word >> 16) & 0xFF)
+                    let data1 = UInt8((word >> 8) & 0xFF)
+                    let data2 = UInt8(word & 0xFF)
+                    let message: MIDIMessage
+                    if status == 0xF1 {
+                        message = .quarterFrame(data: data1)
+                    } else {
+                        message = .other(status: status, data1: data1, data2: data2)
+                    }
+
+                    DispatchQueue.main.async { [weak self] in
+                        self?.inputCallback?(message)
+                    }
+                } else if messageType == 0x03 { // MIDI 1.0 SysEx (64-bit)
+                    // SysEx in UMP: extract bytes from word(s)
+                    let sysExStatus = UInt8((word >> 20) & 0x0F)
+                    let numBytes = Int(UInt8((word >> 16) & 0x0F))
+                    var bytes: [UInt8] = []
+
+                    // Extract payload bytes from first word (up to 2 bytes in bits 15..0)
+                    if numBytes >= 1 { bytes.append(UInt8((word >> 8) & 0xFF)) }
+                    if numBytes >= 2 { bytes.append(UInt8(word & 0xFF)) }
+
+                    // Extract from second word if present
+                    if packet.wordCount >= 2 && numBytes > 2 {
+                        let word2 = packet.words.1
+                        if numBytes >= 3 { bytes.append(UInt8((word2 >> 24) & 0xFF)) }
+                        if numBytes >= 4 { bytes.append(UInt8((word2 >> 16) & 0xFF)) }
+                        if numBytes >= 5 { bytes.append(UInt8((word2 >> 8) & 0xFF)) }
+                        if numBytes >= 6 { bytes.append(UInt8(word2 & 0xFF)) }
+                    }
+
+                    let message: MIDIMessage
+                    // sysExStatus: 0=complete, 1=start, 2=continue, 3=end
+                    if sysExStatus == 0 || sysExStatus == 1 {
+                        message = .sysEx(data: bytes)
+                    } else {
+                        message = .sysEx(data: bytes)
+                    }
 
                     DispatchQueue.main.async { [weak self] in
                         self?.inputCallback?(message)

@@ -4,8 +4,10 @@
 //
 //  CoreAudio HAL device enumeration, channel counting, and hot-plug notification.
 //  Pure hardware discovery — no UI state, no persistence.
+//  macOS-only: CoreAudio HAL APIs are not available on iOS/visionOS.
 //
 
+#if os(macOS)
 import Foundation
 import CoreAudio
 
@@ -263,3 +265,4 @@ public enum AudioDeviceError: LocalizedError {
         }
     }
 }
+#endif

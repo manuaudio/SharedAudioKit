@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import os
 import Observation
 
 /// Thread-safe meter data store for cross-thread metering.
@@ -15,7 +16,7 @@ public final class MeterStore {
 
     /// Interleaved: [ch0_rms, ch0_peak, ch1_rms, ch1_peak, ...]
     @ObservationIgnored private var meterData: [Float] = []
-    @ObservationIgnored private let queue = DispatchQueue(label: "com.manuaudio.meters", qos: .userInteractive)
+    @ObservationIgnored private var lock = os_unfair_lock()
 
     /// Lightweight trigger for SwiftUI Metal view refresh (30Hz).
     public private(set) var refreshTrigger: Int = 0
@@ -25,39 +26,46 @@ public final class MeterStore {
         startRefreshTimer()
     }
 
+    deinit {
+        refreshTimer?.cancel()
+    }
+
     // MARK: - Write (from audio thread)
 
     public func writeMeters(rmsValues: [Float], peakValues: [Float]) {
-        queue.async { [weak self] in
-            guard let self = self else { return }
-            let count = min(rmsValues.count, peakValues.count)
-            if self.meterData.count != count * 2 {
-                self.meterData = Array(repeating: -60.0, count: count * 2)
-            }
-            for i in 0..<count {
-                self.meterData[i * 2] = rmsValues[i]
-                self.meterData[i * 2 + 1] = peakValues[i]
-            }
+        os_unfair_lock_lock(&lock)
+        let count = min(rmsValues.count, peakValues.count)
+        if meterData.count != count * 2 {
+            meterData = Array(repeating: -60.0, count: count * 2)
         }
+        for i in 0..<count {
+            meterData[i * 2] = rmsValues[i]
+            meterData[i * 2 + 1] = peakValues[i]
+        }
+        os_unfair_lock_unlock(&lock)
     }
 
     // MARK: - Read (from Metal views)
 
     public func getMeterData(channel: Int) -> (rms: Float, peak: Float) {
-        queue.sync {
-            guard channel * 2 + 1 < meterData.count else {
-                return (-60.0, -60.0)
-            }
-            return (meterData[channel * 2], meterData[channel * 2 + 1])
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        guard channel * 2 + 1 < meterData.count else {
+            return (-60.0, -60.0)
         }
+        return (meterData[channel * 2], meterData[channel * 2 + 1])
     }
 
     public func getAllMeterData() -> [Float] {
-        queue.sync { meterData }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return meterData
     }
 
     public var channelCount: Int {
-        queue.sync { meterData.count / 2 }
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return meterData.count / 2
     }
 
     // MARK: - Refresh Timer

@@ -34,7 +34,9 @@ public final class LTCDecoder {
     // MARK: - State
 
     private var bitWindow: UInt16 = 0
-    private var frameBits: [UInt8] = []
+    private var frameBits: [UInt8] = Array(repeating: 0, count: 160)
+    private var frameBitsHead: Int = 0
+    private var frameBitsCount: Int = 0
     private var frameStartSample: UInt64 = 0
     private var bitCount: Int = 0
     private var prevSample: Float = 0
@@ -55,7 +57,8 @@ public final class LTCDecoder {
     /// Reset decoder state (call when seeking or switching files).
     public func reset() {
         bitWindow = 0
-        frameBits = []
+        frameBitsHead = 0
+        frameBitsCount = 0
         frameStartSample = 0
         bitCount = 0
         prevSample = 0
@@ -134,26 +137,37 @@ public final class LTCDecoder {
     private func pushBit(_ bit: UInt8, bitDuration: Int, at samplePos: UInt64) {
         bitWindow = (bitWindow >> 1) | (UInt16(bit) << 15)
         bitCount += 1
-        frameBits.append(bit)
-        if frameBits.count > 160 {
-            frameBits.removeFirst(frameBits.count - 160)
+        // Circular buffer write — O(1), no array shifting
+        let writeIdx = (frameBitsHead + frameBitsCount) % 160
+        frameBits[writeIdx] = bit
+        if frameBitsCount < 160 {
+            frameBitsCount += 1
+        } else {
+            frameBitsHead = (frameBitsHead + 1) % 160
         }
     }
 
     private func checkForFrame() -> LTCFrame? {
         guard bitWindow == LTCDecoder.syncWord else { return nil }
-        guard frameBits.count >= 80 else {
-            frameBits = []
+        guard frameBitsCount >= 80 else {
+            frameBitsHead = 0
+            frameBitsCount = 0
             return nil
         }
 
-        let frameData = Array(frameBits.suffix(80))
+        // Extract last 80 bits from circular buffer
+        var frameData = [UInt8](repeating: 0, count: 80)
+        let start = (frameBitsHead + frameBitsCount - 80) % 160
+        for i in 0..<80 {
+            frameData[i] = frameBits[(start + i) % 160]
+        }
         let frameDurationSamples = UInt64(estimatedBitDuration * 80.0)
         let startSample = absoluteSamplePos > frameDurationSamples
             ? absoluteSamplePos - frameDurationSamples : 0
 
         let frame = parseFrame(bits: frameData, startSample: startSample)
-        frameBits = []
+        frameBitsHead = 0
+        frameBitsCount = 0
         return frame
     }
 
@@ -219,7 +233,9 @@ public final class LTCDecoder {
 
     /// Snap a raw estimated frame rate to the nearest standard SMPTE rate.
     public static func quantizeFrameRate(_ raw: Double, dropFrame: Bool) -> Double {
-        if raw < 24.5 {
+        if raw < 23.99 {
+            return 23.976
+        } else if raw < 24.5 {
             return 24.0
         } else if raw < 27.0 {
             return 25.0

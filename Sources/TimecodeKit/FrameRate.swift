@@ -9,15 +9,17 @@ import Foundation
 
 /// Standard SMPTE timecode frame rates.
 public enum FrameRate: String, Codable, CaseIterable, Sendable {
+    case fps23976    // 23.976 (film pulldown)
     case fps24
     case fps25
     case fps2997df   // 29.97 drop-frame (NTSC broadcast)
     case fps30       // 30.000 non-drop
 
     /// Integer frames-per-second used for frame math.
-    /// For 29.97 DF, math uses 30 fps with drop-frame corrections.
+    /// For 23.976, math uses 24 fps. For 29.97 DF, math uses 30 fps with drop-frame corrections.
     public var fps: Int {
         switch self {
+        case .fps23976: return 24
         case .fps24: return 24
         case .fps25: return 25
         case .fps2997df: return 30
@@ -31,6 +33,7 @@ public enum FrameRate: String, Codable, CaseIterable, Sendable {
     /// Real-world rate in frames per second.
     public var realRate: Double {
         switch self {
+        case .fps23976: return 23.976
         case .fps24: return 24.0
         case .fps25: return 25.0
         case .fps2997df: return 29.97
@@ -41,6 +44,7 @@ public enum FrameRate: String, Codable, CaseIterable, Sendable {
     /// Human-readable display name.
     public var displayName: String {
         switch self {
+        case .fps23976: return "23.976"
         case .fps24: return "24"
         case .fps25: return "25"
         case .fps2997df: return "29.97 DF"
@@ -49,8 +53,10 @@ public enum FrameRate: String, Codable, CaseIterable, Sendable {
     }
 
     /// MTC rate code bits (2-bit value for quarter-frame message type 7).
+    /// Note: MTC has no 23.976 rate code; 23.976 uses the 24fps code (0).
     public var mtcRateBits: UInt8 {
         switch self {
+        case .fps23976: return 0
         case .fps24: return 0
         case .fps25: return 1
         case .fps2997df: return 2
@@ -74,7 +80,9 @@ public enum FrameRate: String, Codable, CaseIterable, Sendable {
     /// Construct from a raw measured frame rate (e.g., from LTC timing).
     /// Uses the drop-frame flag as the authoritative indicator for 29.97 vs 30.
     public init(measuredRate: Double, dropFrame: Bool) {
-        if measuredRate < 24.5 {
+        if measuredRate < 23.99 {
+            self = .fps23976
+        } else if measuredRate < 24.5 {
             self = .fps24
         } else if measuredRate < 27.0 {
             self = .fps25

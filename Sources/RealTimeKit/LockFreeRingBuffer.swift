@@ -140,12 +140,15 @@ public final class LockFreeRingBuffer {
         let count = min(frameCount, available)
         guard count > 0 else { return 0 }
 
-        var currentWrite = write
-        for _ in 0..<count {
-            buffer[currentWrite] = 0.0
-            currentWrite += 1
-            if currentWrite >= capacity { currentWrite = 0 }
+        let firstChunk = min(count, capacity - write)
+        if firstChunk > 0 {
+            memset(buffer.advanced(by: write), 0, firstChunk * MemoryLayout<Float>.stride)
         }
+        let secondChunk = count - firstChunk
+        if secondChunk > 0 {
+            memset(buffer, 0, secondChunk * MemoryLayout<Float>.stride)
+        }
+        let currentWrite = (write + count) % capacity
 
         OSMemoryBarrier()
         writeIndex.pointee = Int32(currentWrite)

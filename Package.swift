@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "SharedAudioKit",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17), .visionOS(.v1)],
     products: [
         // Foundational
         .library(name: "TimecodeKit", targets: ["TimecodeKit"]),

@@ -5,6 +5,9 @@
 //  Simulated timecode clock for freewheel / manual playback mode.
 //  Generates frame-accurate timecode from a start point using wall-clock timing.
 //
+//  IMPORTANT: All access to this class must be from the main thread.
+//  The Timer callback and all property reads are main-thread only.
+//
 
 import Foundation
 import TimecodeKit
@@ -13,6 +16,9 @@ import TimecodeKit
 ///
 /// Starts from a given timecode and advances in real time at the specified rate.
 /// Does not depend on any external timecode source.
+///
+/// - Important: Use this class only from the main thread.
+@MainActor
 public final class InternalClock {
 
     /// The current simulated timecode.
@@ -45,11 +51,13 @@ public final class InternalClock {
 
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / rate.realRate, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            let elapsed = Date().timeIntervalSince(self.startDate)
-            let totalFrames = self.startTC.toFrames(rate: self.rate) + Int(elapsed * Double(self.rate.fps))
-            self.timecode = Timecode.fromFrames(totalFrames, rate: self.rate)
-            self.onTimecode?(self.timecode)
+            MainActor.assumeIsolated {
+                guard let self = self else { return }
+                let elapsed = Date().timeIntervalSince(self.startDate)
+                let totalFrames = self.startTC.toFrames(rate: self.rate) + Int(elapsed * Double(self.rate.fps))
+                self.timecode = Timecode.fromFrames(totalFrames, rate: self.rate)
+                self.onTimecode?(self.timecode)
+            }
         }
     }
 

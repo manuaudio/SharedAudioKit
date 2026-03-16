@@ -103,7 +103,9 @@ struct TimecodeTests {
 
     @Test("FrameRate measured rate constructor")
     func frameRateMeasured() {
-        #expect(FrameRate(measuredRate: 23.98, dropFrame: false) == .fps24)
+        #expect(FrameRate(measuredRate: 23.976, dropFrame: false) == .fps23976)
+        #expect(FrameRate(measuredRate: 23.98, dropFrame: false) == .fps23976)
+        #expect(FrameRate(measuredRate: 24.0, dropFrame: false) == .fps24)
         #expect(FrameRate(measuredRate: 25.0, dropFrame: false) == .fps25)
         #expect(FrameRate(measuredRate: 29.97, dropFrame: true) == .fps2997df)
         #expect(FrameRate(measuredRate: 30.0, dropFrame: false) == .fps30)

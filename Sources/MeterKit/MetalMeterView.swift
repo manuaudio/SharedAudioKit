@@ -6,6 +6,7 @@
 //  Triple-buffered rendering, zero allocations per frame.
 //
 
+#if os(macOS)
 import SwiftUI
 import MetalKit
 
@@ -31,10 +32,12 @@ public final class MetalMeterRenderer: NSObject, MTKViewDelegate {
     private let inflightSemaphore = DispatchSemaphore(value: 3)
     private var bufferIndex = 0
 
-    public var level: Float = 0.0
-    public var peak: Float = 0.0
-    public var peakHold: Float = 0.0
     public var kScale: Float = 14.0
+
+    /// The meter store to read data from during draw.
+    public weak var meterStore: MeterStore?
+    public var channelIndex: Int = 0
+    private var peakHold: Float = 0.0
 
     public init?(view: MTKView) {
         guard let device = MTLCreateSystemDefaultDevice(),
@@ -99,9 +102,25 @@ public final class MetalMeterRenderer: NSObject, MTKViewDelegate {
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     public func draw(in view: MTKView) {
-        _ = inflightSemaphore.wait(timeout: .distantFuture)
+        _ = inflightSemaphore.wait(timeout: .now() + .milliseconds(16))
         let idx = bufferIndex
         bufferIndex = (bufferIndex + 1) % 3
+
+        // Read meter data directly during draw — no separate timer needed
+        let norm = { (db: Float) -> Float in max(0, min(1, (db + 60) / 60)) }
+        var level: Float = 0.0
+        var peak: Float = 0.0
+        if let store = meterStore {
+            let data = store.getMeterData(channel: channelIndex)
+            level = norm(data.rms)
+            peak = norm(data.peak)
+            let currentPeak = norm(data.peak)
+            if currentPeak >= peakHold {
+                peakHold = currentPeak
+            } else {
+                peakHold = max(0, peakHold - 1.0 / 45.0)
+            }
+        }
 
         let ub = uniformBuffers[idx]
         ub.contents().bindMemory(to: MeterUniforms.self, capacity: 1).pointee = MeterUniforms(
@@ -153,50 +172,22 @@ public struct MetalMeterView: NSViewRepresentable {
         view.isPaused = false
 
         let renderer = MetalMeterRenderer(view: view)
+        renderer?.meterStore = meterStore
+        renderer?.channelIndex = channelIndex
         context.coordinator.renderer = renderer
-        context.coordinator.meterStore = meterStore
-        context.coordinator.channelIndex = channelIndex
-        context.coordinator.startUpdateTimer()
 
         return view
     }
 
     public func updateNSView(_ nsView: MTKView, context: Context) {
         context.coordinator.renderer?.kScale = kScale
-        context.coordinator.channelIndex = channelIndex
+        context.coordinator.renderer?.channelIndex = channelIndex
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator() }
 
     public final class Coordinator {
         var renderer: MetalMeterRenderer?
-        var meterStore: MeterStore?
-        var channelIndex: Int = 0
-        private var timer: DispatchSourceTimer?
-
-        func startUpdateTimer() {
-            let t = DispatchSource.makeTimerSource(queue: .global(qos: .userInteractive))
-            t.schedule(deadline: .now(), repeating: 1.0 / 30.0)
-            t.setEventHandler { [weak self] in
-                guard let self = self,
-                      let store = self.meterStore,
-                      let renderer = self.renderer else { return }
-
-                let data = store.getMeterData(channel: self.channelIndex)
-                let norm = { (db: Float) -> Float in max(0, min(1, (db + 60) / 60)) }
-                renderer.level = norm(data.rms)
-                renderer.peak = norm(data.peak)
-                let currentPeak = norm(data.peak)
-                if currentPeak >= renderer.peakHold {
-                    renderer.peakHold = currentPeak
-                } else {
-                    renderer.peakHold = max(0, renderer.peakHold - 1.0 / 45.0)
-                }
-            }
-            t.resume()
-            timer = t
-        }
-
-        deinit { timer?.cancel() }
     }
 }
+#endif

@@ -54,7 +54,9 @@ struct LTCRoundTripTests {
 
     @Test("Frame rate quantization")
     func quantization() {
-        #expect(LTCDecoder.quantizeFrameRate(23.98, dropFrame: false) == 24.0)
+        #expect(LTCDecoder.quantizeFrameRate(23.976, dropFrame: false) == 23.976)
+        #expect(LTCDecoder.quantizeFrameRate(23.98, dropFrame: false) == 23.976)
+        #expect(LTCDecoder.quantizeFrameRate(24.0, dropFrame: false) == 24.0)
         #expect(LTCDecoder.quantizeFrameRate(25.0, dropFrame: false) == 25.0)
         #expect(LTCDecoder.quantizeFrameRate(29.97, dropFrame: true) == 29.97)
         #expect(LTCDecoder.quantizeFrameRate(30.0, dropFrame: false) == 30.0)

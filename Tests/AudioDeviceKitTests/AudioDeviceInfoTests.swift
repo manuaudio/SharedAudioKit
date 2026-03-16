@@ -1,3 +1,4 @@
+#if os(macOS)
 import Testing
 @testable import AudioDeviceKit
 
@@ -27,3 +28,4 @@ struct AudioDeviceInfoTests {
         #expect(AudioDeviceEnumerator.formatSampleRate(44100) == "44 kHz")
     }
 }
+#endif
