@@ -18,9 +18,20 @@ public final class MeterStore {
     @ObservationIgnored private var meterData: [Float] = []
     @ObservationIgnored private var lock = os_unfair_lock()
 
-    /// Lightweight trigger for SwiftUI Metal view refresh (30Hz).
+    /// Lightweight trigger for SwiftUI Metal view refresh.
     public private(set) var refreshTrigger: Int = 0
     private var refreshTimer: DispatchSourceTimer?
+
+    /// Refresh rate in Hz for the SwiftUI observation trigger.
+    /// Match this to your Metal view's preferredFramesPerSecond for smooth meters.
+    /// Default is 30 Hz.
+    @ObservationIgnored
+    public var refreshRate: Double = 30.0 {
+        didSet {
+            refreshTimer?.cancel()
+            startRefreshTimer()
+        }
+    }
 
     public init() {
         startRefreshTimer()
@@ -79,7 +90,7 @@ public final class MeterStore {
 
     private func startRefreshTimer() {
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: 1.0 / 30.0)
+        timer.schedule(deadline: .now(), repeating: 1.0 / refreshRate)
         timer.setEventHandler { [weak self] in
             self?.refreshTrigger &+= 1
         }

@@ -118,6 +118,78 @@ struct CueTriggerEngineTests {
 
     // MARK: - CueRange Codable
 
+    // MARK: - Hysteresis
+
+    @Test("Adjacent cue transition fires both cues (hysteresis fix)")
+    func adjacentCueTransition() {
+        let engine = CueTriggerEngine()
+        let cueA = UUID()
+        let cueB = UUID()
+        let ranges = [
+            CueRange(startFrames: 300, endFrames: 301, cueID: cueA, displayName: "Cue A", midiProgram: 1, cueIndex: 0),
+            CueRange(startFrames: 301, endFrames: 600, cueID: cueB, displayName: "Cue B", midiProgram: 2, cueIndex: 1),
+        ]
+        engine.loadRanges(ranges, rate: .fps30)
+
+        // Enter cue A at frame 300
+        let e1 = engine.evaluate(currentTimecode: Timecode.fromFrames(300, rate: .fps30))
+        #expect(e1 != nil)
+        #expect(e1?.displayName == "Cue A")
+
+        // Move to frame 301 — should fire cue B (was suppressed by old bug)
+        let e2 = engine.evaluate(currentTimecode: Timecode.fromFrames(301, rate: .fps30))
+        #expect(e2 != nil, "Adjacent cue transition should fire")
+        #expect(e2?.displayName == "Cue B")
+    }
+
+    @Test("Bounce back to same cue is suppressed by hysteresis")
+    func bounceBackSuppressed() {
+        let engine = CueTriggerEngine()
+        let cueA = UUID()
+        let ranges = [
+            CueRange(startFrames: 300, endFrames: 310, cueID: cueA, displayName: "Cue A", midiProgram: 1, cueIndex: 0),
+        ]
+        engine.loadRanges(ranges, rate: .fps30)
+
+        // Enter cue A
+        let e1 = engine.evaluate(currentTimecode: Timecode.fromFrames(305, rate: .fps30))
+        #expect(e1 != nil)
+
+        // Leave cue A (frame 311 is outside range)
+        let e2 = engine.evaluate(currentTimecode: Timecode.fromFrames(311, rate: .fps30))
+        #expect(e2 == nil)
+
+        // Re-enter cue A within hysteresis window (1 frame later)
+        let e3 = engine.evaluate(currentTimecode: Timecode.fromFrames(306, rate: .fps30))
+        #expect(e3 == nil, "Bounce back within hysteresis should be suppressed")
+    }
+
+    @Test("Configurable hysteresis frames")
+    func configurableHysteresis() {
+        let engine = CueTriggerEngine()
+        engine.hysteresisFrames = 10
+
+        let cueA = UUID()
+        let ranges = [
+            CueRange(startFrames: 300, endFrames: 320, cueID: cueA, displayName: "Cue A", midiProgram: 1, cueIndex: 0),
+        ]
+        engine.loadRanges(ranges, rate: .fps30)
+
+        // Enter cue A
+        let e1 = engine.evaluate(currentTimecode: Timecode.fromFrames(305, rate: .fps30))
+        #expect(e1 != nil)
+
+        // Leave cue A
+        let e2 = engine.evaluate(currentTimecode: Timecode.fromFrames(325, rate: .fps30))
+        #expect(e2 == nil)
+
+        // Re-enter within 10 frames — should be suppressed
+        let e3 = engine.evaluate(currentTimecode: Timecode.fromFrames(310, rate: .fps30))
+        #expect(e3 == nil, "Re-enter within 10-frame hysteresis should be suppressed")
+    }
+
+    // MARK: - CueRange Codable
+
     @Test("CueRange round-trips through JSON")
     func cueRangeCodable() throws {
         let range = CueRange(

@@ -94,6 +94,42 @@ struct LTCRoundTripTests {
         }
     }
 
+    @Test("Decoded frames have isValid set to true")
+    func decodedFrameIsValid() {
+        let tc = Timecode(hours: 1, minutes: 23, seconds: 45, frames: 6)
+        let sampleRate = 48000.0
+        let totalSamples = Int(sampleRate * 2)
+
+        let audio = LTCEncoder.encode(
+            timecodes: [(tc, 0)],
+            rate: .fps30,
+            sampleRate: sampleRate,
+            totalSamples: totalSamples
+        )
+
+        let decoder = LTCDecoder(sampleRate: sampleRate)
+        let frames = decoder.decode(samples: audio, sampleOffset: 0)
+
+        #expect(!frames.isEmpty)
+        if let first = frames.first {
+            #expect(first.isValid == true, "Valid timecode should have isValid == true")
+        }
+    }
+
+    @Test("Manually constructed invalid LTCFrame has isValid false")
+    func invalidFrameIsValid() {
+        let frame = LTCFrame(
+            timecode: Timecode(hours: 23, minutes: 59, seconds: 59, frames: 29),
+            samplePosition: 0,
+            dropFrame: false,
+            colorFrame: false,
+            frameRate: 30.0,
+            userBits: 0,
+            isValid: false
+        )
+        #expect(frame.isValid == false)
+    }
+
     @Test("Reset clears signal quality")
     func signalQualityReset() {
         let decoder = LTCDecoder(sampleRate: 48000.0)

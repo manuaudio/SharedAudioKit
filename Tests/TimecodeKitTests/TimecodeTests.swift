@@ -101,6 +101,23 @@ struct TimecodeTests {
         #expect(FrameRate(fps: 25, dropFrame: false) == .fps25)
     }
 
+    @Test("FrameRate validating init accepts known rates")
+    func frameRateValidating() {
+        #expect(FrameRate(validatingFPS: 24, dropFrame: false) == .fps24)
+        #expect(FrameRate(validatingFPS: 25, dropFrame: false) == .fps25)
+        #expect(FrameRate(validatingFPS: 30, dropFrame: false) == .fps30)
+        #expect(FrameRate(validatingFPS: 30, dropFrame: true) == .fps2997df)
+        #expect(FrameRate(validatingFPS: 29, dropFrame: true) == .fps2997df)
+    }
+
+    @Test("FrameRate validating init rejects unknown rates")
+    func frameRateValidatingRejects() {
+        #expect(FrameRate(validatingFPS: 48, dropFrame: false) == nil)
+        #expect(FrameRate(validatingFPS: 60, dropFrame: false) == nil)
+        #expect(FrameRate(validatingFPS: 0, dropFrame: false) == nil)
+        #expect(FrameRate(validatingFPS: 15, dropFrame: false) == nil)
+    }
+
     @Test("FrameRate measured rate constructor")
     func frameRateMeasured() {
         #expect(FrameRate(measuredRate: 23.976, dropFrame: false) == .fps23976)

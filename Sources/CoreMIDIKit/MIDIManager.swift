@@ -51,6 +51,7 @@ public final class MIDIManager {
     public var onSetupChanged: (() -> Void)?
 
     private var inputCallback: ((MIDIMessage) -> Void)?
+    private var callbackQueue: DispatchQueue = .main
 
     /// Create a MIDI manager. Returns nil if the CoreMIDI client cannot be created.
     public init?(clientName: String) {
@@ -75,8 +76,14 @@ public final class MIDIManager {
     // MARK: - Port Creation
 
     /// Create an input port that parses MIDI events and delivers MIDIMessage values.
-    public func createInputPort(name: String, callback: @escaping (MIDIMessage) -> Void) throws {
+    /// - Parameters:
+    ///   - name: Port name visible in CoreMIDI.
+    ///   - callbackQueue: Queue for callback dispatch (default: main). Use a dedicated
+    ///     queue for high-throughput scenarios (e.g. 1000+ CC/sec modulation).
+    ///   - callback: Called for each parsed MIDI message.
+    public func createInputPort(name: String, callbackQueue: DispatchQueue = .main, callback: @escaping (MIDIMessage) -> Void) throws {
         self.inputCallback = callback
+        self.callbackQueue = callbackQueue
         let status = MIDIInputPortCreateWithProtocol(
             client, name as CFString, ._1_0, &inputPort
         ) { [weak self] eventList, _ in
@@ -125,6 +132,23 @@ public final class MIDIManager {
         bytes.withUnsafeBufferPointer { buffer in
             guard let baseAddress = buffer.baseAddress else { return }
             MIDIPacketListAdd(&packetList, 1024, packet, 0, bytes.count, baseAddress)
+        }
+        let status = MIDISend(outputPort, destination, &packetList)
+        guard status == noErr else {
+            throw MIDIManagerError.sendFailed(status)
+        }
+    }
+
+    /// Send multiple MIDI messages in a single packet list (more efficient for automation curves).
+    public func sendBatch(_ messages: [[UInt8]], to destination: MIDIEndpointRef) throws {
+        guard outputPort != 0 else { return }
+        var packetList = MIDIPacketList()
+        var packet = MIDIPacketListInit(&packetList)
+        for msg in messages {
+            msg.withUnsafeBufferPointer { buffer in
+                guard let base = buffer.baseAddress else { return }
+                packet = MIDIPacketListAdd(&packetList, 1024, packet, 0, msg.count, base)
+            }
         }
         let status = MIDISend(outputPort, destination, &packetList)
         guard status == noErr else {
@@ -185,73 +209,75 @@ public final class MIDIManager {
     // MARK: - Event Parsing
 
     private func handleEventList(_ eventListPtr: UnsafePointer<MIDIEventList>) {
-        let eventList = eventListPtr.pointee
-        var packet = eventList.packet
+        let numPackets = Int(eventListPtr.pointee.numPackets)
+        guard numPackets > 0 else { return }
 
-        for _ in 0..<eventList.numPackets {
-            if packet.wordCount >= 1 {
-                let word = packet.words.0
-                let messageType = (word >> 28) & 0x0F
+        // We must iterate through the original event list memory, NOT a stack copy.
+        // MIDIEventPacketNext computes the next packet address by offsetting from
+        // the current pointer, so it must point into the original contiguous buffer.
+        //
+        // UnsafeMutablePointer dance: get a pointer to the `packet` field within
+        // the original event list allocation.
+        let firstPacketPtr = UnsafeRawPointer(eventListPtr)
+            .advanced(by: 8)  // skip protocol (UInt32) + numPackets (UInt32)
+            .assumingMemoryBound(to: MIDIEventPacket.self)
 
-                if messageType == 0x02 { // MIDI 1.0 channel voice
-                    let status = UInt8((word >> 16) & 0xFF)
-                    let data1 = UInt8((word >> 8) & 0xFF)
-                    let data2 = UInt8(word & 0xFF)
-                    let message = MIDIMessage.parse(status: status, data1: data1, data2: data2)
+        var current: UnsafePointer<MIDIEventPacket> = firstPacketPtr
+        for _ in 0..<numPackets {
+            parseAndDispatchPacket(current.pointee)
+            current = MIDIEventPacketNext(current)
+        }
+    }
 
-                    DispatchQueue.main.async { [weak self] in
-                        self?.inputCallback?(message)
-                    }
-                } else if messageType == 0x01 { // MIDI 1.0 system common
-                    let status = UInt8((word >> 16) & 0xFF)
-                    let data1 = UInt8((word >> 8) & 0xFF)
-                    let data2 = UInt8(word & 0xFF)
-                    let message: MIDIMessage
-                    if status == 0xF1 {
-                        message = .quarterFrame(data: data1)
-                    } else {
-                        message = .other(status: status, data1: data1, data2: data2)
-                    }
+    private func parseAndDispatchPacket(_ packet: MIDIEventPacket) {
+        guard packet.wordCount >= 1 else { return }
+        let word = packet.words.0
+        let messageType = (word >> 28) & 0x0F
 
-                    DispatchQueue.main.async { [weak self] in
-                        self?.inputCallback?(message)
-                    }
-                } else if messageType == 0x03 { // MIDI 1.0 SysEx (64-bit)
-                    // SysEx in UMP: extract bytes from word(s)
-                    let sysExStatus = UInt8((word >> 20) & 0x0F)
-                    let numBytes = Int(UInt8((word >> 16) & 0x0F))
-                    var bytes: [UInt8] = []
+        if messageType == 0x02 { // MIDI 1.0 channel voice
+            let status = UInt8((word >> 16) & 0xFF)
+            let data1 = UInt8((word >> 8) & 0xFF)
+            let data2 = UInt8(word & 0xFF)
+            let message = MIDIMessage.parse(status: status, data1: data1, data2: data2)
 
-                    // Extract payload bytes from first word (up to 2 bytes in bits 15..0)
-                    if numBytes >= 1 { bytes.append(UInt8((word >> 8) & 0xFF)) }
-                    if numBytes >= 2 { bytes.append(UInt8(word & 0xFF)) }
-
-                    // Extract from second word if present
-                    if packet.wordCount >= 2 && numBytes > 2 {
-                        let word2 = packet.words.1
-                        if numBytes >= 3 { bytes.append(UInt8((word2 >> 24) & 0xFF)) }
-                        if numBytes >= 4 { bytes.append(UInt8((word2 >> 16) & 0xFF)) }
-                        if numBytes >= 5 { bytes.append(UInt8((word2 >> 8) & 0xFF)) }
-                        if numBytes >= 6 { bytes.append(UInt8(word2 & 0xFF)) }
-                    }
-
-                    let message: MIDIMessage
-                    // sysExStatus: 0=complete, 1=start, 2=continue, 3=end
-                    if sysExStatus == 0 || sysExStatus == 1 {
-                        message = .sysEx(data: bytes)
-                    } else {
-                        message = .sysEx(data: bytes)
-                    }
-
-                    DispatchQueue.main.async { [weak self] in
-                        self?.inputCallback?(message)
-                    }
-                }
+            callbackQueue.async { [weak self] in
+                self?.inputCallback?(message)
+            }
+        } else if messageType == 0x01 { // MIDI 1.0 system common
+            let status = UInt8((word >> 16) & 0xFF)
+            let data1 = UInt8((word >> 8) & 0xFF)
+            let data2 = UInt8(word & 0xFF)
+            let message: MIDIMessage
+            if status == 0xF1 {
+                message = .quarterFrame(data: data1)
+            } else {
+                message = .other(status: status, data1: data1, data2: data2)
             }
 
-            var current = packet
-            withUnsafePointer(to: &current) { ptr in
-                packet = MIDIEventPacketNext(ptr).pointee
+            callbackQueue.async { [weak self] in
+                self?.inputCallback?(message)
+            }
+        } else if messageType == 0x03 { // MIDI 1.0 SysEx (64-bit)
+            let sysExStatus = UInt8((word >> 20) & 0x0F)
+            let numBytes = Int(UInt8((word >> 16) & 0x0F))
+            var bytes: [UInt8] = []
+
+            if numBytes >= 1 { bytes.append(UInt8((word >> 8) & 0xFF)) }
+            if numBytes >= 2 { bytes.append(UInt8(word & 0xFF)) }
+
+            if packet.wordCount >= 2 && numBytes > 2 {
+                let word2 = packet.words.1
+                if numBytes >= 3 { bytes.append(UInt8((word2 >> 24) & 0xFF)) }
+                if numBytes >= 4 { bytes.append(UInt8((word2 >> 16) & 0xFF)) }
+                if numBytes >= 5 { bytes.append(UInt8((word2 >> 8) & 0xFF)) }
+                if numBytes >= 6 { bytes.append(UInt8(word2 & 0xFF)) }
+            }
+
+            // sysExStatus: 0=complete, 1=start, 2=continue, 3=end
+            let message = MIDIMessage.sysEx(data: bytes)
+
+            callbackQueue.async { [weak self] in
+                self?.inputCallback?(message)
             }
         }
     }

@@ -64,6 +64,22 @@ public enum FrameRate: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// Failable initializer that returns nil for unrecognized fps values.
+    /// Use this when processing external input (e.g. LTC measured rates)
+    /// where silent defaulting to 30fps would hide errors.
+    public init?(validatingFPS fps: Int, dropFrame: Bool) {
+        if dropFrame && (fps == 30 || fps == 29) {
+            self = .fps2997df
+            return
+        }
+        switch fps {
+        case 24: self = .fps24
+        case 25: self = .fps25
+        case 30: self = .fps30
+        default: return nil
+        }
+    }
+
     /// Construct from the legacy (fps: Int, dropFrame: Bool) pair.
     public init(fps: Int, dropFrame: Bool) {
         if dropFrame && (fps == 30 || fps == 29) {

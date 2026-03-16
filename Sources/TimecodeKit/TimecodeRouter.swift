@@ -31,8 +31,13 @@ public final class TimecodeRouter {
     /// Called when the active source changes (e.g., MTC goes dead, falls back to LTC).
     public var onSourceChanged: ((String?) -> Void)?
 
+    /// Minimum interval between source-change callbacks (seconds). Default 0.5s.
+    /// Prevents UI flicker when two sources rapidly alternate active/inactive.
+    public var sourceChangeDebounce: TimeInterval = 0.5
+
     private var lastActiveSourceID: String?
     private var lastTimecode: Timecode = .zero
+    private var lastSourceChangeTime: CFAbsoluteTime = 0
 
     public init() {}
 
@@ -70,16 +75,24 @@ public final class TimecodeRouter {
     public func poll() {
         guard let source = activeSource else {
             if lastActiveSourceID != nil {
-                lastActiveSourceID = nil
-                onSourceChanged?(nil)
+                let now = CFAbsoluteTimeGetCurrent()
+                if now - lastSourceChangeTime >= sourceChangeDebounce {
+                    lastActiveSourceID = nil
+                    lastSourceChangeTime = now
+                    onSourceChanged?(nil)
+                }
             }
             return
         }
 
-        // Notify if active source changed
+        // Notify if active source changed (with debounce)
         if source.sourceID != lastActiveSourceID {
-            lastActiveSourceID = source.sourceID
-            onSourceChanged?(source.sourceID)
+            let now = CFAbsoluteTimeGetCurrent()
+            if now - lastSourceChangeTime >= sourceChangeDebounce {
+                lastActiveSourceID = source.sourceID
+                lastSourceChangeTime = now
+                onSourceChanged?(source.sourceID)
+            }
         }
 
         let tc = source.currentTimecode

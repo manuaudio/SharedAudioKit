@@ -22,6 +22,8 @@ public struct LTCFrame: Sendable {
     public let frameRate: Double
     /// 32 user bits packed into a UInt32.
     public let userBits: UInt32
+    /// Whether the decoded fields had valid SMPTE ranges before clamping.
+    public let isValid: Bool
 
     /// The quantized FrameRate from the raw timing + drop-frame flag.
     public var quantizedRate: FrameRate {
@@ -29,12 +31,13 @@ public struct LTCFrame: Sendable {
     }
 
     public init(timecode: Timecode, samplePosition: UInt64, dropFrame: Bool,
-                colorFrame: Bool, frameRate: Double, userBits: UInt32) {
+                colorFrame: Bool, frameRate: Double, userBits: UInt32, isValid: Bool = true) {
         self.timecode = timecode
         self.samplePosition = samplePosition
         self.dropFrame = dropFrame
         self.colorFrame = colorFrame
         self.frameRate = frameRate
         self.userBits = userBits
+        self.isValid = isValid
     }
 }

@@ -78,6 +78,19 @@ struct MeterStoreTests {
         #expect(peakAfter == -60.0)
     }
 
+    @Test("Configurable refresh rate")
+    func configurableRefreshRate() {
+        let store = MeterStore()
+        #expect(store.refreshRate == 30.0)
+
+        // Setting refresh rate should not crash
+        store.refreshRate = 60.0
+        #expect(store.refreshRate == 60.0)
+
+        store.refreshRate = 10.0
+        #expect(store.refreshRate == 10.0)
+    }
+
     @Test("Channel count reflects written data")
     func channelCount() {
         let store = MeterStore()

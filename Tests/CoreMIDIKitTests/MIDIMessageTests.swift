@@ -94,4 +94,83 @@ struct MIDIMessageTests {
         let msg = MIDIMessage.sysEx(data: [0x7F, 0x01, 0x02])
         #expect(msg.bytes == [0xF0, 0x7F, 0x01, 0x02, 0xF7])
     }
+
+    // MARK: - Pitch Bend
+
+    @Test("Parse Pitch Bend center")
+    func pitchBendCenter() {
+        let msg = MIDIMessage.parse(status: 0xE0, data1: 0x00, data2: 0x40)
+        if case .pitchBend(let ch, let val) = msg {
+            #expect(ch == 0)
+            #expect(val == 8192, "Center pitch bend should be 8192")
+        } else {
+            Issue.record("Expected pitchBend")
+        }
+    }
+
+    @Test("Parse Pitch Bend max on channel 5")
+    func pitchBendMax() {
+        let msg = MIDIMessage.parse(status: 0xE5, data1: 0x7F, data2: 0x7F)
+        if case .pitchBend(let ch, let val) = msg {
+            #expect(ch == 5)
+            #expect(val == 16383, "Max pitch bend should be 16383")
+        } else {
+            Issue.record("Expected pitchBend")
+        }
+    }
+
+    @Test("Parse Pitch Bend min")
+    func pitchBendMin() {
+        let msg = MIDIMessage.parse(status: 0xE0, data1: 0x00, data2: 0x00)
+        if case .pitchBend(let ch, let val) = msg {
+            #expect(ch == 0)
+            #expect(val == 0, "Min pitch bend should be 0")
+        } else {
+            Issue.record("Expected pitchBend")
+        }
+    }
+
+    @Test("Pitch Bend bytes round-trip")
+    func pitchBendBytes() {
+        let msg = MIDIMessage.pitchBend(channel: 3, value: 8192)
+        let bytes = msg.bytes
+        #expect(bytes == [0xE3, 0x00, 0x40])
+        let parsed = MIDIMessage.parse(status: bytes[0], data1: bytes[1], data2: bytes[2])
+        if case .pitchBend(let ch, let val) = parsed {
+            #expect(ch == 3)
+            #expect(val == 8192)
+        } else {
+            Issue.record("Expected pitchBend after round-trip")
+        }
+    }
+
+    // MARK: - Channel Pressure
+
+    @Test("Parse Channel Pressure")
+    func channelPressure() {
+        let msg = MIDIMessage.parse(status: 0xD0, data1: 100, data2: 0)
+        if case .channelPressure(let ch, let pressure) = msg {
+            #expect(ch == 0)
+            #expect(pressure == 100)
+        } else {
+            Issue.record("Expected channelPressure")
+        }
+    }
+
+    @Test("Channel Pressure on channel 7")
+    func channelPressureCh7() {
+        let msg = MIDIMessage.parse(status: 0xD7, data1: 64, data2: 0)
+        if case .channelPressure(let ch, let pressure) = msg {
+            #expect(ch == 7)
+            #expect(pressure == 64)
+        } else {
+            Issue.record("Expected channelPressure")
+        }
+    }
+
+    @Test("Channel Pressure bytes round-trip")
+    func channelPressureBytes() {
+        let msg = MIDIMessage.channelPressure(channel: 2, pressure: 80)
+        #expect(msg.bytes == [0xD2, 80])
+    }
 }

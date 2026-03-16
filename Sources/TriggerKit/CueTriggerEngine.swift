@@ -55,8 +55,16 @@ public final class CueTriggerEngine {
     private var cueRanges: [CueRange] = []
     private var rate: FrameRate = .fps30
     private var lastTriggeredCueID: UUID?
+    private var previousTriggeredCueID: UUID?
     private var lastTriggerFrame: Int = -100
-    private let hysteresisFrames = 2
+    private var _hysteresisFrames: Int = 2
+
+    /// Hysteresis in frames to prevent rapid re-triggering at cue boundaries.
+    /// Default is 2 frames. Broadcast operators may need 10-30 frames.
+    public var hysteresisFrames: Int {
+        get { queue.sync { _hysteresisFrames } }
+        set { queue.sync { _hysteresisFrames = newValue } }
+    }
 
     /// Max frame sentinel.
     private var maxFrames: Int { 24 * 3600 * rate.fps - 1 }
@@ -102,6 +110,7 @@ public final class CueTriggerEngine {
         queue.sync {
             self.rate = rate
             self.lastTriggeredCueID = nil
+            self.previousTriggeredCueID = nil
             self.lastTriggerFrame = -100
             self.cueRanges = newRanges
         }
@@ -112,6 +121,7 @@ public final class CueTriggerEngine {
         queue.sync {
             self.rate = rate
             self.lastTriggeredCueID = nil
+            self.previousTriggeredCueID = nil
             self.lastTriggerFrame = -100
             self.cueRanges = ranges
         }
@@ -142,30 +152,35 @@ public final class CueTriggerEngine {
             if candidateIdx >= 0 {
                 let range = cueRanges[candidateIdx]
                 if liveFrames >= range.startFrames && liveFrames < range.endFrames {
-                    if lastTriggeredCueID != range.cueID {
+                    if lastTriggeredCueID == range.cueID {
+                        return nil  // Already in this cue, no re-trigger
+                    }
+                    // Bounce detection: suppress re-entering a cue we just left
+                    if range.cueID == previousTriggeredCueID {
                         let frameDelta = abs(liveFrames - lastTriggerFrame)
-                        if frameDelta < hysteresisFrames && lastTriggeredCueID != nil {
+                        if frameDelta < _hysteresisFrames {
                             return nil
                         }
-
-                        lastTriggeredCueID = range.cueID
-                        lastTriggerFrame = liveFrames
-
-                        let event = TriggerEvent(
-                            cueID: range.cueID,
-                            displayName: range.displayName,
-                            midiProgram: range.midiProgram,
-                            cueIndex: range.cueIndex,
-                            rangeIndex: candidateIdx
-                        )
-                        onCueTriggered?(event)
-                        return event
                     }
-                    return nil
+
+                    previousTriggeredCueID = nil
+                    lastTriggeredCueID = range.cueID
+                    lastTriggerFrame = liveFrames
+
+                    let event = TriggerEvent(
+                        cueID: range.cueID,
+                        displayName: range.displayName,
+                        midiProgram: range.midiProgram,
+                        cueIndex: range.cueIndex,
+                        rangeIndex: candidateIdx
+                    )
+                    onCueTriggered?(event)
+                    return event
                 }
             }
 
             if lastTriggeredCueID != nil {
+                previousTriggeredCueID = lastTriggeredCueID
                 lastTriggeredCueID = nil
             }
             return nil
@@ -176,6 +191,7 @@ public final class CueTriggerEngine {
     public func reset() {
         queue.sync {
             lastTriggeredCueID = nil
+            previousTriggeredCueID = nil
             lastTriggerFrame = -100
             cueRanges.removeAll()
         }

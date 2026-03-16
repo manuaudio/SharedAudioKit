@@ -80,6 +80,7 @@ struct TimecodeRouterTests {
     @Test("Poll fires onSourceChanged when source switches")
     func sourceChanged() {
         let router = TimecodeRouter()
+        router.sourceChangeDebounce = 0.0 // disable debounce for this test
         let ltc = MockTimecodeSource(id: "ltc", timecode: Timecode(hours: 0, minutes: 0, seconds: 1, frames: 0), active: true, priority: 10)
         let mtc = MockTimecodeSource(id: "mtc", timecode: Timecode(hours: 0, minutes: 0, seconds: 2, frames: 0), active: true, priority: 20)
         router.addSource(ltc)
@@ -114,6 +115,31 @@ struct TimecodeRouterTests {
         router.removeAllSources()
         #expect(router.sources.isEmpty)
         #expect(router.activeSource == nil)
+    }
+
+    @Test("Source change debounce throttles rapid switches")
+    func sourceChangeDebounce() {
+        let router = TimecodeRouter()
+        router.sourceChangeDebounce = 0.0 // disable for existing tests
+
+        let ltc = MockTimecodeSource(id: "ltc", timecode: Timecode(hours: 0, minutes: 0, seconds: 1, frames: 0), active: true, priority: 10)
+        let mtc = MockTimecodeSource(id: "mtc", timecode: Timecode(hours: 0, minutes: 0, seconds: 2, frames: 0), active: true, priority: 20)
+        router.addSource(ltc)
+        router.addSource(mtc)
+
+        // With debounce = 1.0, rapid switching should be throttled
+        router.sourceChangeDebounce = 1.0
+        var changedTo: [String?] = []
+        router.onSourceChanged = { changedTo.append($0) }
+
+        router.poll() // first poll picks mtc — fires because no previous
+        mtc.isActive = false
+        router.poll() // wants ltc, but debounce blocks
+        mtc.isActive = true
+        router.poll() // mtc again, no change notification
+
+        #expect(changedTo.count == 1, "Debounce should throttle rapid source changes")
+        #expect(changedTo.first == "mtc")
     }
 
     @Test("No duplicate timecode callbacks when TC unchanged")

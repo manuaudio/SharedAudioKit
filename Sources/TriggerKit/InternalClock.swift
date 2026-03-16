@@ -54,11 +54,18 @@ public final class InternalClock {
             MainActor.assumeIsolated {
                 guard let self = self else { return }
                 let elapsed = Date().timeIntervalSince(self.startDate)
-                let totalFrames = self.startTC.toFrames(rate: self.rate) + Int(elapsed * Double(self.rate.fps))
-                self.timecode = Timecode.fromFrames(totalFrames, rate: self.rate)
+                self.timecode = Self.computeTimecode(elapsed: elapsed, startTC: self.startTC, rate: self.rate)
                 self.onTimecode?(self.timecode)
             }
         }
+    }
+
+    /// Pure computation: convert elapsed seconds to timecode using realRate.
+    /// Uses realRate (e.g. 29.97) instead of fps (e.g. 30) to prevent drift
+    /// in drop-frame modes (~3.6 frames/hour at 29.97 DF).
+    internal static func computeTimecode(elapsed: Double, startTC: Timecode, rate: FrameRate) -> Timecode {
+        let totalFrames = startTC.toFrames(rate: rate) + Int(elapsed * rate.realRate)
+        return Timecode.fromFrames(totalFrames, rate: rate)
     }
 
     /// Stop the clock.
