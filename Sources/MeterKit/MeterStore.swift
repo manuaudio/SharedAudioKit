@@ -28,8 +28,10 @@ public final class MeterStore {
     @ObservationIgnored
     public var refreshRate: Double = 30.0 {
         didSet {
-            refreshTimer?.cancel()
-            startRefreshTimer()
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshTimer?.cancel()
+                self?.startRefreshTimer()
+            }
         }
     }
 

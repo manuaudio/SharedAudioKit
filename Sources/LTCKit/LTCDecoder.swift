@@ -233,7 +233,7 @@ public final class LTCDecoder {
         let quantizedFPS = LTCDecoder.quantizeFrameRate(rawFPS, dropFrame: dropFrame)
 
         let maxFrames = dropFrame ? 29 : Int(quantizedFPS.rounded()) - 1
-        let valid = hours <= 23 && minutes <= 59 && seconds <= 59 && frames <= max(maxFrames, 23)
+        let valid = hours <= 23 && minutes <= 59 && seconds <= 59 && frames <= maxFrames
         let tc = Timecode(
             hours: min(hours, 23),
             minutes: min(minutes, 59),

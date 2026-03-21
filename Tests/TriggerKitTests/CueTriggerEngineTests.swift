@@ -116,8 +116,6 @@ struct CueTriggerEngineTests {
         #expect(engine.currentCue == nil)
     }
 
-    // MARK: - CueRange Codable
-
     // MARK: - Hysteresis
 
     @Test("Adjacent cue transition fires both cues (hysteresis fix)")
